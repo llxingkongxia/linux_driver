@@ -15,12 +15,30 @@ module_param(second_major, int, S_IRUGO);
 struct second_dev{
     struct cdev cdev;
     atomic_t counter;
+    atomic_t lock;
     struct timer_list s_timer;
     struct class  *second_class;
     struct device *second_device; 
 };
 
 static struct second_dev *second_devp;
+
+static int second_lock(atomic_t *lock)
+{
+	if(atomic_inc_return(lock) == 1)
+		return 0;
+	else{
+		atomic_dec(lock);
+		return -1;
+	}
+		
+}
+
+static void second_unlock(atomic_t *lock)
+{
+	atomic_dec(lock);		
+}
+
 
 static void second_timer_handler(unsigned long arg)
 {
@@ -32,6 +50,11 @@ static void second_timer_handler(unsigned long arg)
 
 static int second_open(struct inode *inode, struct file *filp)
 {
+    if (second_lock(&second_devp->lock)) {
+	printk(KERN_ERR "%s second_release not called returning EBUSY\n", __func__);
+	return -EBUSY;
+    }
+
     init_timer(&second_devp->s_timer);
     second_devp->s_timer.function = &second_timer_handler;
     second_devp->s_timer.expires = jiffies + HZ;
@@ -44,6 +67,7 @@ static int second_open(struct inode *inode, struct file *filp)
 
 static int second_release(struct inode *inode, struct file *filp)
 {
+    second_unlock(&second_devp->lock);
     del_timer(&second_devp->s_timer);
     return 0;
 }
@@ -95,7 +119,7 @@ static int __init second_init(void)
         ret = -ENOMEM;
         goto fail_malloc;
     }
-    
+    atomic_set(&second_devp->lock, 0);
     second_setup_cdev(second_devp, 0);
     second_devp->second_class = class_create(THIS_MODULE, "second_class");
     if(second_devp)
