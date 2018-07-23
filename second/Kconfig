@@ -1,0 +1,6 @@
+config SECOND
+	bool "my second test"
+	default y
+	help
+	   a second test driver
+
